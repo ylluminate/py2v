@@ -4313,9 +4313,7 @@ pub fn (mut t VTranspiler) visit_compare(node Compare) string {
 		}
 		right := t.visit_expr(comp)
 		// Check if right side is a string - use .contains() instead of 'in'
-		right_ann := get_expr_annotation(comp)
-		right_type := if right_ann.len > 0 { right_ann } else { t.infer_expr_type(comp) }
-		if right_type == 'string' {
+		if t.is_string_haystack(node) {
 			return '${as_receiver(right)}.contains(${left})'
 		}
 		// Parenthesised because V binds `=` more tightly than `in`, so an
@@ -4326,13 +4324,7 @@ pub fn (mut t VTranspiler) visit_compare(node Compare) string {
 	if node.ops.len > 0 && node.ops[0] is NotIn {
 		right := t.visit_expr(node.comparators[0])
 		// Check if right side is a string - use !.contains() instead of '!in'
-		right_ann := get_expr_annotation(node.comparators[0])
-		right_type := if right_ann.len > 0 {
-			right_ann
-		} else {
-			t.infer_expr_type(node.comparators[0])
-		}
-		if right_type == 'string' {
+		if t.is_string_haystack(node) {
 			return '!${as_receiver(right)}.contains(${left})'
 		}
 		return '(${cmp_operand(left)} !in ${cmp_operand(right)})'
@@ -4356,6 +4348,48 @@ pub fn (mut t VTranspiler) visit_compare(node Compare) string {
 	}
 
 	return '${cmp_operand(left)} ${op} ${cmp_operand(right)}'
+}
+
+// is_string_haystack reports whether the right operand of a membership test is a string, so
+// the test is emitted as `.contains()`: V's `in` takes only arrays and maps. Only the first
+// link of a chained comparison is emitted, so a chain is judged by the type fact alone.
+fn (mut t VTranspiler) is_string_haystack(node Compare) bool {
+	comp := node.comparators[0]
+	ann := get_expr_annotation(comp)
+	typ := if ann.len > 0 { ann } else { t.infer_expr_type(comp) }
+	return typ == 'string' || (node.ops.len == 1 && t.is_string_value(comp))
+}
+
+// is_string_value reports whether expr is known to be a string: by its type fact, or as an
+// f-string, a slice of a string, or a string method that returns a string, called on a string.
+// A slice with a step is left out because its step is not emitted.
+fn (mut t VTranspiler) is_string_value(expr Expr) bool {
+	ann := get_expr_annotation(expr)
+	typ := if ann.len > 0 { ann } else { t.infer_expr_type(expr) }
+	if typ == 'string' {
+		return true
+	}
+	match expr {
+		JoinedStr {
+			return true
+		}
+		Subscript {
+			if expr.slice is Slice {
+				if expr.slice.step == none {
+					return t.is_string_value(expr.value)
+				}
+			}
+		}
+		Call {
+			if expr.func is Attribute {
+				if expr.func.attr in ['lower', 'upper', 'strip', 'lstrip', 'rstrip', 'replace'] {
+					return t.is_string_value(expr.func.value)
+				}
+			}
+		}
+		else {}
+	}
+	return false
 }
 
 // cmp_operand wraps an operand of a comparison that binds at a comparison's level or lower:
