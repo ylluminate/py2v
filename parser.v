@@ -1,6 +1,7 @@
 module main
 
 import x.json2
+import strconv
 
 // Extract type annotation from v_annotation or inferred_annotation
 fn parse_type_annotation(m map[string]json2.Any) ?string {
@@ -936,7 +937,14 @@ fn parse_expr_stmt(m map[string]json2.Any) ExprStmt {
 // Parse Constant
 fn parse_constant(m map[string]json2.Any) Constant {
 	raw_val := m['value'] or { json2.Any(json2.Null{}) }
-	value := parse_constant_value(raw_val)
+	mut value := parse_constant_value(raw_val)
+	// The frontend sends the digits of an int past 32 bits as text, because the JSON number
+	// decodes as an f64 and loses digits above 2**53.
+	if text := m['text'] {
+		if n := strconv.parse_int(text.str(), 10, 64) {
+			value = ConstantValue(n)
+		}
+	}
 	return Constant{
 		value:        value
 		kind:         parse_optional_string(m['kind'] or { json2.Any(json2.Null{}) })

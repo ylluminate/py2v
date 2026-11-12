@@ -918,6 +918,22 @@ def _annotation_to_str(node: Optional[ast.AST]) -> str:
 # AST to JSON serializer
 # ---------------------------------------------------------------------------
 
+def _keep_bound_int_as_float(value: Optional[Dict[str, Any]]) -> None:
+    """Drop the int text of a literal that is the whole value bound to a name.
+
+    V rejects `x := 4294967296` and `const c = 4294967296` (overflow in implicit type `int`),
+    so a literal bound this way keeps its f64 spelling and the variable keeps its f64 type.
+    """
+    while value is not None and value.get("node_type") == "UnaryOp":
+        value = value.get("operand")
+    if value is None:
+        return
+    if value.get("node_type") == "Tuple":
+        for elt in value.get("elts", []):
+            _keep_bound_int_as_float(elt)
+    elif value.get("node_type") == "Constant":
+        value.pop("text", None)
+
 def _node_to_dict(node: ast.AST, mutable_vars: Set[str],
                   redefined: Dict[int, List[str]],
                   ctx: Optional[AnalysisContext] = None) -> Dict[str, Any]:
@@ -1070,6 +1086,7 @@ def _node_to_dict(node: ast.AST, mutable_vars: Set[str],
     elif isinstance(node, ast.Assign):
         result["targets"] = [_node_to_dict(t, mutable_vars, redefined, ctx) for t in node.targets]
         result["value"] = _node_to_dict(node.value, mutable_vars, redefined, ctx)
+        _keep_bound_int_as_float(result["value"])
         result["type_comment"] = getattr(node, "type_comment", None)
         redef = redefined.get(id(node), [])
         if redef:
@@ -1114,6 +1131,7 @@ def _node_to_dict(node: ast.AST, mutable_vars: Set[str],
         result["target"] = _node_to_dict(node.target, mutable_vars, redefined, ctx)
         result["annotation"] = _node_to_dict(node.annotation, mutable_vars, redefined, ctx)
         result["value"] = _node_to_dict(node.value, mutable_vars, redefined, ctx) if node.value else None
+        _keep_bound_int_as_float(result["value"])
         result["simple"] = node.simple
 
     elif isinstance(node, (ast.For, ast.AsyncFor)):
@@ -1196,6 +1214,7 @@ def _node_to_dict(node: ast.AST, mutable_vars: Set[str],
     elif isinstance(node, ast.NamedExpr):
         result["target"] = _node_to_dict(node.target, mutable_vars, redefined, ctx)
         result["value"] = _node_to_dict(node.value, mutable_vars, redefined, ctx)
+        _keep_bound_int_as_float(result["value"])
 
     elif isinstance(node, ast.BinOp):
         result["left"] = _node_to_dict(node.left, mutable_vars, redefined, ctx)
@@ -1293,6 +1312,11 @@ def _node_to_dict(node: ast.AST, mutable_vars: Set[str],
             result["v_annotation"] = "bool"
         elif isinstance(node.value, int):
             result["v_annotation"] = "int"
+            # JSON numbers decode as f64 in the backend, which loses digits above 2**53.
+            # The digits travel as text for each int past 32 bits that still fits in i64
+            # (a constant is never negative: `-5` is a unary minus applied to 5).
+            if 2**31 <= node.value < 2**63:
+                result["text"] = str(node.value)
         elif isinstance(node.value, float):
             result["v_annotation"] = "float"
         elif isinstance(node.value, str):
