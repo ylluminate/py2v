@@ -3479,7 +3479,7 @@ fn (mut t VTranspiler) emit_if_chain_match(subject string, cases []MatchCase) st
 			// Inline capture variable → subject for pure-capture MatchAs
 			if capture_subst.len > 0 {
 				// Replace whole-word occurrences of the capture name with subject
-				guard_expr = guard_expr.replace(capture_subst, subject)
+				guard_expr = replace_comp_identifier(guard_expr, capture_subst, subject)
 			}
 			if full_cond.len == 0 {
 				full_cond = guard_expr
