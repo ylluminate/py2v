@@ -15,6 +15,10 @@ def main():
     for i in range(5, 0, -1):
         print(i)
 
+    # Negative step that does not divide the distance
+    for i in range(7, -1, -3):
+        print(i)
+
 
 if __name__ == "__main__":
     main()

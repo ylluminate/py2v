@@ -2630,7 +2630,15 @@ pub fn (mut t VTranspiler) visit_for(node For) string {
 				// For range with step, use traditional C-style for loop
 				// Detect if step is -1 and use i-- instead of i += -1
 				step_op := if step == '-1' { '${target}--' } else { '${target} += ${step}' }
-				buf << 'for ${target} := ${start}; ${target} < ${end}; ${step_op} {'
+				// A negative literal step counts down, so the loop runs while the target is
+				// above the stop. Any other step keeps `<`.
+				mut cmp := '<'
+				if n := negative_literal(call.args[2]) {
+					if n > 0 {
+						cmp = '>'
+					}
+				}
+				buf << 'for ${target} := ${start}; ${target} ${cmp} ${end}; ${step_op} {'
 				buf << t.visit_body_stmts(node.body, 1)
 				buf << '}'
 				if has_else {

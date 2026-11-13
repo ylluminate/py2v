@@ -10,7 +10,10 @@ fn main_func() {
 	for i := 0; i < 10; i += 2 {
 		println(i)
 	}
-	for i := 5; i < 0; i-- {
+	for i := 5; i > 0; i-- {
+		println(i)
+	}
+	for i := 7; i > -1; i += -3 {
 		println(i)
 	}
 }
