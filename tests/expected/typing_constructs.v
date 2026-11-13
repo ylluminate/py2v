@@ -4,7 +4,7 @@ type Any = bool | int | i64 | f64 | string | []u8
 
 // NOTE: Union[int, string] — define: type X = int | string
 fn process(x Any) ?string {
-	return x
+	return '${x}'
 }
 
 fn apply(f fn (int) string, x int) string {
@@ -12,7 +12,7 @@ fn apply(f fn (int) string, x int) string {
 }
 
 fn maybe(x ?int) string {
-	return x
+	return '${x}'
 }
 
 fn main() {

@@ -230,7 +230,7 @@ fn visit_bool(mut t VTranspiler, node Call, args []string) (string, bool) {
 }
 
 // Handle int() call
-fn visit_int(node Call, args []string) (string, bool) {
+fn visit_int(mut t VTranspiler, node Call, args []string) (string, bool) {
 	if args.len == 0 {
 		return '0', true
 	}
@@ -243,7 +243,7 @@ fn visit_int(node Call, args []string) (string, bool) {
 			}
 		}
 		ann := get_v_annotation(node.args[0])
-		if ann == 'string' {
+		if ann == 'string' || t.infer_expr_type(node.args[0]) == 'string' {
 			return '${as_receiver(args[0])}.int()', true
 		}
 	}
@@ -251,7 +251,7 @@ fn visit_int(node Call, args []string) (string, bool) {
 }
 
 // Handle float() call
-fn visit_float(node Call, args []string) (string, bool) {
+fn visit_float(mut t VTranspiler, node Call, args []string) (string, bool) {
 	if args.len == 0 {
 		return '0.0', true
 	}
@@ -264,7 +264,7 @@ fn visit_float(node Call, args []string) (string, bool) {
 			}
 		}
 		ann := get_v_annotation(node.args[0])
-		if ann == 'string' {
+		if ann == 'string' || t.infer_expr_type(node.args[0]) == 'string' {
 			return '${as_receiver(args[0])}.f64()', true
 		}
 	}
@@ -272,11 +272,22 @@ fn visit_float(node Call, args []string) (string, bool) {
 }
 
 // Handle str() call
-fn visit_str(args []string) (string, bool) {
+fn visit_str(mut t VTranspiler, node Call, args []string) (string, bool) {
 	if args.len == 0 {
 		return "''", true
 	}
 	arg := args[0]
+	if node.args.len == 1 {
+		// Python's str() spells a bool True/False; interpolate other values that
+		// are not known strings, so the result is a V string too.
+		arg_type := t.infer_expr_type(node.args[0])
+		if arg_type == 'bool' {
+			return '(${bool_to_python_str(arg)})', true
+		}
+		if arg_type != 'string' {
+			return "'\${${arg}}'", true
+		}
+	}
 	// Simple identifiers don't need parens — emit identifier or parenthesised expression
 	if arg.len > 0 && is_simple_identifier(arg) {
 		return '${arg}', true
@@ -648,15 +659,15 @@ fn dispatch_builtin_impl(mut t VTranspiler, fname string, node Call, args []stri
 			return DispatchResult{code, handled, ''}
 		}
 		'int' {
-			code, handled := visit_int(node, args)
+			code, handled := visit_int(mut t, node, args)
 			return DispatchResult{code, handled, ''}
 		}
 		'float' {
-			code, handled := visit_float(node, args)
+			code, handled := visit_float(mut t, node, args)
 			return DispatchResult{code, handled, ''}
 		}
 		'str' {
-			code, handled := visit_str(args)
+			code, handled := visit_str(mut t, node, args)
 			return DispatchResult{code, handled, ''}
 		}
 		'len' {
@@ -711,6 +722,15 @@ fn dispatch_builtin_impl(mut t VTranspiler, fname string, node Call, args []stri
 					closure := build_typed_lambda_closure(mut t, lam, iter_expr)
 					iter_code := as_receiver(args[1])
 					return DispatchResult{'${iter_code}.map(${closure})', true, ''}
+				}
+				if node.args.len == 2 && first is Name && first.id == 'str' {
+					// map(str, xs) applies str() to each element, as visit_str does.
+					elem := if t.infer_iter_elem_type(node.args[1]) == 'bool' {
+						bool_to_python_str('it')
+					} else {
+						"'\${it}'"
+					}
+					return DispatchResult{'${as_receiver(args[1])}.map(${elem})', true, ''}
 				}
 			}
 			code, handled := visit_map_builtin(args)

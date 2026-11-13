@@ -57,7 +57,7 @@ fn (self Private) label() string {
 }
 
 fn describe(p _Private) string {
-	return repr(p) + p
+	return repr(p) + '${p}'
 }
 
 fn main() {

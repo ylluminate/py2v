@@ -4581,7 +4581,8 @@ pub fn (mut t VTranspiler) visit_call(node Call) string {
 			'join' {
 				if vargs.len > 0 {
 					arg_type := t.infer_expr_type(node.args[0])
-					if arg_type.len == 0 || arg_type == 'Any' {
+					if (arg_type.len == 0 || arg_type == 'Any')
+						&& !t.yields_strings(node.args[0]) {
 						// Fallback when iterable element type is unknown.
 						// Do not add .str() — emit the iterable expression as-is.
 						return '(${vargs[0]})'
@@ -7712,4 +7713,40 @@ fn (mut t VTranspiler) hoist_in_stmt_list(stmts []Stmt, mut out []string) []Stmt
 		result << t.hoist_in_stmt(stmt, mut out)
 	}
 	return result
+}
+
+// yields_strings reports whether `e` is a generator expression, a list
+// comprehension, a tuple or a map() call whose elements are known to be strings.
+fn (mut t VTranspiler) yields_strings(e Expr) bool {
+	match e {
+		GeneratorExp {
+			return t.is_string_expr(e.elt)
+		}
+		ListComp {
+			return t.is_string_expr(e.elt)
+		}
+		Tuple {
+			return e.elts.len > 0 && e.elts.all(t.is_string_expr(it))
+		}
+		Call {
+			if e.func is Name && e.func.id == 'map' && e.args.len == 2 {
+				f := e.args[0]
+				if f is Name {
+					return f.id == 'str'
+				}
+				if f is Lambda {
+					return t.is_string_expr(*f.body)
+				}
+			}
+			return false
+		}
+		else {
+			return false
+		}
+	}
+}
+
+// is_string_expr reports whether `e` is an f-string or is inferred to be a string.
+fn (mut t VTranspiler) is_string_expr(e Expr) bool {
+	return e is JoinedStr || t.infer_expr_type(e) == 'string'
 }
