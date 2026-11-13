@@ -6162,7 +6162,28 @@ pub fn (mut t VTranspiler) visit_formatted_value(node FormattedValue) string {
 // node, to be embedded inside a surrounding single-quoted V string.
 fn (mut t VTranspiler) fmtval_segment(node FormattedValue) string {
 	expr := t.visit_expr(node.value)
+	if node.conversion == 114 && node.format_spec == none && t.is_plain_str_value(node.value) {
+		return '\${${str_repr_expr(expr)}}'
+	}
 	return '\${${expr}}'
+}
+
+// is_plain_str_value reports whether a `!r` operand is a str py2v can read
+// more than once without side effects: a string literal or a str variable.
+fn (mut t VTranspiler) is_plain_str_value(e Expr) bool {
+	match e {
+		Constant { return e.value is string }
+		Name { return e.id !in t.func_return_types && t.infer_expr_type(e) == 'string' }
+		else { return false }
+	}
+}
+
+// str_repr_expr wraps a V string expression so it yields Python's repr():
+// single quotes unless the value holds a single quote and no double quote,
+// with backslash, newline, carriage return and tab escaped.
+fn str_repr_expr(x string) string {
+	esc := "'\\\\', '\\\\\\\\', '\\n', '\\\\n', '\\r', '\\\\r', '\\t', '\\\\t'"
+	return 'if ${x}.contains("\'") && !${x}.contains(\'"\') { \'"\' + ${x}.replace_each([${esc}]) + \'"\' } else { "\'" + ${x}.replace_each([${esc}, "\'", "\\\\\'"]) + "\'" }'
 }
 
 // visit_joined_str emits V code for an f-string (JoinedStr) as a single
