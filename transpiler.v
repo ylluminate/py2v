@@ -4051,6 +4051,29 @@ fn skip_v_string(s string, start int) int {
 	return s.len
 }
 
+// split_maxsplit_parts returns the part count for V's `split_nth` when a
+// `str.split(sep, maxsplit)` call passes both positionally, with an int literal
+// or a plain name as maxsplit. Python's maxsplit counts splits and `split_nth`
+// counts parts, so the count is maxsplit + 1; a negative maxsplit becomes 0 or
+// less, which `split_nth` treats as no limit, as Python does.
+fn split_maxsplit_parts(node Call, vargs []string) ?string {
+	if node.args.len != 2 {
+		return none
+	}
+	sep := node.args[0]
+	if sep is Constant && sep.value is NoneValue {
+		return none
+	}
+	arg := node.args[1]
+	if arg is Constant && arg.value is int {
+		return '${(arg.value as int) + 1}'
+	}
+	if arg is Name {
+		return '${vargs[1]} + 1'
+	}
+	return none
+}
+
 // as_receiver wraps emitted code that does not bind like an atom, for use before `.` or an
 // index: `(s + t).to_upper()`, not `s + t.to_upper()`.
 fn as_receiver(code string) string {
@@ -4573,6 +4596,9 @@ pub fn (mut t VTranspiler) visit_call(node Call) string {
 				return obj
 			}
 			'split' {
+				if maxsplit := split_maxsplit_parts(node, vargs) {
+					return '${obj}.split_nth(${vargs[0]}, ${maxsplit})'
+				}
 				if vargs.len > 0 {
 					return '${obj}.split(${vargs[0]})'
 				}
