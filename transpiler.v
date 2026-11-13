@@ -6,6 +6,12 @@ pub struct VTranspiler {
 mut:
 	tmp_gen TmpVarGen
 	usings  []string
+	// Depth of comprehension, lambda and match-guard bodies being emitted. Their
+	// text is rewritten by substring replacement afterwards, so f-string specs
+	// are not kept inside them.
+	comp_depth int
+	// Set when an f-string field calls the py_format helper.
+	uses_py_format bool
 	// Maps and state tracked during transpilation
 	current_class_name  string
 	escaped_identifiers map[string]bool
@@ -404,6 +410,10 @@ pub fn (mut t VTranspiler) visit_module(node Module) string {
 	}
 	for f in nested_fndefs {
 		func_decls << f
+	}
+	if t.uses_py_format && !t.registry.py_format_declared_in[t.module_name] {
+		t.registry.py_format_declared_in[t.module_name] = true
+		func_decls << py_format_helper
 	}
 	if func_decls.len > 0 {
 		parts << func_decls.join('\n\n')
@@ -3475,7 +3485,9 @@ fn (mut t VTranspiler) emit_if_chain_match(subject string, cases []MatchCase) st
 		// Apply guard; when cond is empty the guard is the full condition.
 		mut full_cond := cond
 		if guard := c.guard {
+			t.comp_depth++
 			mut guard_expr := t.visit_expr(guard)
+			t.comp_depth--
 			// Inline capture variable → subject for pure-capture MatchAs
 			if capture_subst.len > 0 {
 				// Replace whole-word occurrences of the capture name with subject
@@ -5911,6 +5923,8 @@ pub fn (mut t VTranspiler) visit_ifexp(node IfExp) string {
 
 // visit_lambda emits V code for lambda expressions (Lambda).
 pub fn (mut t VTranspiler) visit_lambda(node Lambda) string {
+	t.comp_depth++
+	defer { t.comp_depth-- }
 	mut args := []string{}
 
 	// Try to infer types from the body expression
@@ -5962,6 +5976,8 @@ pub fn (mut t VTranspiler) visit_set_comp(node SetComp) string {
 
 // visit_dict_comp emits V code for dict comprehensions (DictComp).
 pub fn (mut t VTranspiler) visit_dict_comp(node DictComp) string {
+	t.comp_depth++
+	defer { t.comp_depth-- }
 	mut buf := []string{}
 
 	// Pre-bind comprehension loop variables so key/value type inference works.
@@ -6025,6 +6041,8 @@ pub fn (mut t VTranspiler) visit_generator_exp(node GeneratorExp) string {
 }
 
 fn (mut t VTranspiler) visit_generator_exp_impl(elt Expr, generators []Comprehension) string {
+	t.comp_depth++
+	defer { t.comp_depth-- }
 	if generators.len == 0 {
 		return '[]'
 	}
@@ -6165,6 +6183,150 @@ fn (mut t VTranspiler) fmtval_segment(node FormattedValue) string {
 	return '\${${expr}}'
 }
 
+// fstring_spec_args parses a constant f-string format spec with Python's format
+// mini-language, [[fill]align][sign][0][width][grouping][.precision][type], and
+// returns the arguments py_format takes after the value. It returns none for a
+// form py_format does not cover, which keeps the plain `${expr}` emission.
+fn fstring_spec_args(node FormattedValue) ?string {
+	if node.conversion != -1 {
+		return none
+	}
+	raw := node.format_spec or { return none }
+	mut spec := ''
+	if raw is JoinedStr {
+		for part in raw.values {
+			if part is Constant && part.value is string {
+				spec += part.value as string
+			} else {
+				return none
+			}
+		}
+	}
+	r := spec.runes()
+	if r.len == 0 {
+		return none
+	}
+	mut i := 0
+	mut fill := ''
+	mut align := ''
+	if r.len >= 2 && r[1] in [`<`, `>`, `^`, `=`] {
+		if r[0] in [`'`, `"`, `\\`, `$`] {
+			return none
+		}
+		fill = r[0].str()
+		align = r[1].str()
+		i = 2
+	} else if r[0] in [`<`, `>`, `^`, `=`] {
+		align = r[0].str()
+		i = 1
+	}
+	mut sign := ''
+	if i < r.len && r[i] in [`+`, `-`, ` `] {
+		sign = r[i].str()
+		i++
+	}
+	zero := i < r.len && r[i] == `0`
+	if zero {
+		i++
+	}
+	mut width := 0
+	for i < r.len && r[i] >= `0` && r[i] <= `9` {
+		width = width * 10 + int(r[i] - `0`)
+		i++
+	}
+	mut group := ''
+	if i < r.len && r[i] in [`,`, `_`] {
+		group = r[i].str()
+		i++
+	}
+	mut prec := -1
+	if i < r.len && r[i] == `.` {
+		prec = 0
+		i++
+		for i < r.len && r[i] >= `0` && r[i] <= `9` {
+			prec = prec * 10 + int(r[i] - `0`)
+			i++
+		}
+	}
+	typ := if i < r.len { r[i].str() } else { '' }
+	if i + typ.runes().len != r.len || typ !in ['', 'd', 's', 'e', 'E', 'f', 'F', 'g', 'G', '%'] {
+		return none
+	}
+	// Python puts grouping separators into zero padding; that is not covered.
+	if group != '' && (zero || align == '=') {
+		return none
+	}
+	return "'${fill}', '${align}', '${sign}', ${zero}, ${width}, '${group}', ${prec}, '${typ}'"
+}
+
+// py_format_helper is emitted once per V module whose f-strings call py_format.
+const py_format_helper = r"// py_format formats x as Python's format(x, spec) does, from the spec fields
+// py2v parsed: fill, align ('' for the default), sign, the 0 flag, width,
+// grouping separator, precision (-1 when absent) and type. Floats go through
+// C's snprintf, which rounds the exact binary value as CPython does. A value
+// or spec not covered here prints as plain interpolation would.
+fn py_format[T](x T, fill string, align string, sign string, zero bool, width int, group string, prec int, typ string) string {
+	mut body := ''
+	mut numeric := true
+	$if T is $int {
+		if typ in ['e', 'E', 'f', 'F', 'g', 'G', '%'] {
+			body = py_format_c(f64(x), sign, prec, typ)
+		} else {
+			v := i64(x)
+			mag := if v < 0 { u64(-(v + 1)) + 1 } else { u64(v) }
+			body = if v < 0 { '-' } else if sign == '-' { '' } else { sign }
+			body += mag.str()
+		}
+	} $else $if T is $float {
+		if typ !in ['e', 'E', 'f', 'F', 'g', 'G', '%'] {
+			return '${x}'
+		}
+		body = py_format_c(f64(x), sign, prec, typ)
+	} $else $if T is string {
+		numeric = false
+		body = if prec >= 0 { x.runes()#[..prec].string() } else { x }
+	} $else {
+		return '${x}'
+	}
+	if group != '' {
+		i := if body[0] in [`+`, `-`, ` `] { 1 } else { 0 }
+		mut j := i
+		for j < body.len && body[j].is_digit() {
+			j++
+		}
+		mut digits := body[i..j]
+		mut grouped := ''
+		for digits.len > 3 {
+			grouped = group + digits[digits.len - 3..] + grouped
+			digits = digits[..digits.len - 3]
+		}
+		body = body[..i] + digits + grouped + body[j..]
+	}
+	pad := width - body.runes().len
+	a := if align != '' { align } else if !numeric { '<' } else if zero { '=' } else { '>' }
+	f := if fill != '' { fill } else if zero { '0' } else { ' ' }
+	return match a {
+		'<' { body + f.repeat(pad) }
+		'^' { f.repeat(pad / 2) + body + f.repeat(pad - pad / 2) }
+		'=' {
+			s := if body[0] in [`+`, `-`, ` `] { body[..1] } else { '' }
+			s + f.repeat(pad) + body[s.len..]
+		}
+		else { f.repeat(pad) + body }
+	}
+}
+
+// py_format_c formats x for Python's types e, E, f, F, g, G and %.
+fn py_format_c(x f64, sign string, prec int, typ string) string {
+	p := if prec >= 0 { prec } else { 6 }
+	cfmt := if typ == '%' { '%${sign}.${p}f%%' } else { '%${sign}.${p}${typ}' }
+	v := if typ == '%' { x * 100.0 } else { x }
+	n := unsafe { C.snprintf(nil, 0, &char(cfmt.str), v) }
+	mut buf := []u8{len: n + 1}
+	unsafe { C.snprintf(&char(buf.data), uint(n + 1), &char(cfmt.str), v) }
+	return buf[..n].bytestr()
+}"
+
 // visit_joined_str emits V code for an f-string (JoinedStr) as a single
 // V interpolated string literal `'...${expr}...'`.
 pub fn (mut t VTranspiler) visit_joined_str(node JoinedStr) string {
@@ -6193,6 +6355,13 @@ pub fn (mut t VTranspiler) visit_joined_str(node JoinedStr) string {
 				}
 			}
 			FormattedValue {
+				if t.comp_depth == 0 {
+					if args := fstring_spec_args(val) {
+						t.uses_py_format = true
+						inner += '\${py_format(${t.visit_expr(val.value)}, ${args})}'
+						continue
+					}
+				}
 				inner += t.fmtval_segment(val)
 			}
 			else {
@@ -6336,6 +6505,8 @@ fn (mut t VTranspiler) extract_walrus_from_expr(e Expr, mut assigns []string) st
 // visit_generator_exp_impl_walrus expands a comprehension with walrus in its filters
 // to an IIFE for-loop so V's type-safe closures are not required.
 fn (mut t VTranspiler) visit_generator_exp_impl_walrus(elt Expr, generators []Comprehension) string {
+	t.comp_depth++
+	defer { t.comp_depth-- }
 	// Determine element type for result array
 	elem_type := t.infer_expr_type(elt)
 	arr_type := if elem_type.len > 0 && elem_type != 'Any' {
