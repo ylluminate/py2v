@@ -250,6 +250,43 @@ fn visit_int(node Call, args []string) (string, bool) {
 	return 'int(${args[0]})', true
 }
 
+// visit_int_with_base handles `int(s, base)` with a literal base of 2, 8, 10 or 16.
+// Python strips surrounding whitespace, takes one sign, then the base's own prefix
+// (`0b`, `0o`, `0x`) and digits joined by single underscores, and raises ValueError
+// otherwise. strconv.parse_int takes none of the prefix, underscores or whitespace,
+// so the string is reduced to sign and digits first and an error panics.
+fn visit_int_with_base(node Call, args []string) ?string {
+	if node.args.len != 2 {
+		return none
+	}
+	// Only where visit_int already knows the argument is a string: `str(n)` emits plain `n`,
+	// and `int(n)` is what keeps `int(str(n), 10)` right.
+	if get_v_annotation(node.args[0]) != 'string' {
+		return none
+	}
+	base_node := node.args[1]
+	if base_node !is Constant {
+		return none
+	}
+	c := base_node as Constant
+	if c.value !is int {
+		return none
+	}
+	base := c.value as int
+	prefix := match base {
+		2 { 'bB' }
+		8 { 'oO' }
+		10 { '' }
+		16 { 'xX' }
+		else { return none }
+	}
+	mut strip_prefix := ''
+	if prefix != '' {
+		strip_prefix = "if t.len > 1 && t[0] == `0` && t[1] in [`${prefix[0..1]}`, `${prefix[1..2]}`] { t = t[2..]; if t.starts_with('_') { t = t[1..] } }; "
+	}
+	return "int(fn (s string) i64 { mut t := s.trim_space(); mut neg := false; if t.len > 0 && t[0] in [`+`, `-`] { neg = t[0] == `-`; t = t[1..] }; ${strip_prefix}if t == '' || t[0] in [`+`, `-`, `_`] || t.ends_with('_') || t.contains('__') { panic('invalid literal for int() with base ${base}: ' + s) }; n := strconv.parse_int(t.replace('_', ''), ${base}, 64) or { panic(err) }; return if neg { -n } else { n } }(${args[0]}))"
+}
+
 // Handle float() call
 fn visit_float(node Call, args []string) (string, bool) {
 	if args.len == 0 {
@@ -648,6 +685,9 @@ fn dispatch_builtin_impl(mut t VTranspiler, fname string, node Call, args []stri
 			return DispatchResult{code, handled, ''}
 		}
 		'int' {
+			if code := visit_int_with_base(node, args) {
+				return DispatchResult{code, true, 'strconv'}
+			}
 			code, handled := visit_int(node, args)
 			return DispatchResult{code, handled, ''}
 		}
