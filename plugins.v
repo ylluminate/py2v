@@ -349,8 +349,18 @@ fn visit_pow(args []string) (string, bool, string) {
 }
 
 // Handle sum() call
-fn visit_sum(args []string) (string, bool, string) {
-	return 'arrays.sum(${args[0]}) or { 0 }', true, 'arrays'
+fn visit_sum(mut t VTranspiler, node Call, args []string) (string, bool, string) {
+	total := 'arrays.sum(${args[0]}) or { 0 }'
+	if node.args.len == 2 {
+		// sum(xs, start) adds start to the total when both are int or float; any other
+		// start is dropped as before.
+		start_type := t.infer_expr_type(node.args[1])
+		elem_type := t.infer_iter_elem_type(node.args[0])
+		if start_type in ['int', 'f64'] && elem_type in ['int', 'f64'] {
+			return '${args[1]} + (${total})', true, 'arrays'
+		}
+	}
+	return total, true, 'arrays'
 }
 
 // Handle sorted() call
@@ -688,7 +698,7 @@ fn dispatch_builtin_impl(mut t VTranspiler, fname string, node Call, args []stri
 			return DispatchResult{code, handled, using}
 		}
 		'sum' {
-			code, handled, using := visit_sum(args)
+			code, handled, using := visit_sum(mut t, node, args)
 			return DispatchResult{code, handled, using}
 		}
 		'sorted' {
