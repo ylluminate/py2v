@@ -4296,6 +4296,23 @@ pub fn (mut t VTranspiler) visit_boolop(node BoolOp) string {
 
 // visit_compare emits V code for comparison expressions (Compare).
 pub fn (mut t VTranspiler) visit_compare(node Compare) string {
+	// `a < b < c` is `a < b and b < c` with `b` evaluated once, so a chain is emitted as the
+	// conjunction of its two-operand comparisons when every middle operand is a constant or a
+	// name, which can be repeated. Any other middle operand is left as before.
+	if node.comparators.len > 1
+		&& node.comparators[..node.comparators.len - 1].all(it is Constant || it is Name) {
+		mut parts := []string{cap: node.comparators.len}
+		for i, comp in node.comparators {
+			mut lhs := if i == 0 { *node.left } else { node.comparators[i - 1] }
+			parts << t.visit_compare(Compare{
+				...node
+				left:        &lhs
+				ops:         [node.ops[i]]
+				comparators: [comp]
+			})
+		}
+		return parts.join(' && ')
+	}
 	left := t.visit_expr(node.left)
 
 	if node.ops.len > 0 && node.ops[0] is In {

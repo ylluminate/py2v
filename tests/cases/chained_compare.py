@@ -1,3 +1,8 @@
+def middle() -> int:
+    print("middle")
+    return 5
+
+
 def main():
     x = 5
 
@@ -12,6 +17,15 @@ def main():
     c = 7
     print(a < b < c)
     print(a < b > c)
+    print(a == b == 0)
+    print(a < b < c < x)
+    print(not a < b < c)
+    print(a < b < c or a > b)
+    print("b" in "abc" in "xabcx")
+    print(a < b in [5, 6])
+
+    # A middle operand that is not a constant or a name is left as it was
+    print(a < middle() < c)
 
 
 if __name__ == "__main__":
