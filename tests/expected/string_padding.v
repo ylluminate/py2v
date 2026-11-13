@@ -3,8 +3,24 @@ module main
 import strings
 
 fn main_func() {
-	println(if '42'.len < 5 { strings.repeat(`0`, 5 - '42'.len) + '42' } else { '42' })
-	println(if 'hello'.len < 3 { strings.repeat(`0`, 3 - 'hello'.len) + 'hello' } else { 'hello' })
+	println(if '42'.len < 5 {
+		if '42'.len > 0 && ('42'[0] == `-` || '42'[0] == `+`) {
+			'42'[..1] + strings.repeat(`0`, 5 - '42'.len) + '42'[1..]
+		} else {
+			strings.repeat(`0`, 5 - '42'.len) + '42'
+		}
+	} else {
+		'42'
+	})
+	println(if 'hello'.len < 3 {
+		if 'hello'.len > 0 && ('hello'[0] == `-` || 'hello'[0] == `+`) {
+			'hello'[..1] + strings.repeat(`0`, 3 - 'hello'.len) + 'hello'[1..]
+		} else {
+			strings.repeat(`0`, 3 - 'hello'.len) + 'hello'
+		}
+	} else {
+		'hello'
+	})
 	println(if 'hi'.len < 6 { 'hi' + strings.repeat(' '[0], 6 - 'hi'.len) } else { 'hi' })
 	println(if 'hi'.len < 6 { strings.repeat(' '[0], 6 - 'hi'.len) + 'hi' } else { 'hi' })
 	println(if 'hi'.len < 6 { 'hi' + strings.repeat('*'[0], 6 - 'hi'.len) } else { 'hi' })

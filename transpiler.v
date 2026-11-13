@@ -5022,10 +5022,12 @@ pub fn (mut t VTranspiler) visit_call(node Call) string {
 				return '${obj}.bytes()'
 			}
 			'zfill' {
-				// No direct V equivalent — pad with leading zeros using strings module
+				// No direct V equivalent — pad with leading zeros using strings module.
+				// Python keeps a leading sign in front of the zeros: '-5'.zfill(4) is '-005'.
 				t.add_using('strings')
 				if vargs.len > 0 {
-					return 'if ${obj}.len < ${vargs[0]} { strings.repeat(`0`, ${vargs[0]} - ${obj}.len) + ${obj} } else { ${obj} }'
+					zeros := 'strings.repeat(`0`, ${vargs[0]} - ${obj}.len)'
+					return 'if ${obj}.len < ${vargs[0]} { if ${obj}.len > 0 && (${obj}[0] == `-` || ${obj}[0] == `+`) { ${obj}[..1] + ${zeros} + ${obj}[1..] } else { ${zeros} + ${obj} } } else { ${obj} }'
 				}
 				return obj
 			}
