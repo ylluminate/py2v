@@ -1,9 +1,7 @@
 module main
 
-type Any = bool | int | i64 | f64 | string | []u8
-
 fn main_func() {
-	d := {
+	mut d := {
 		'a': 1
 		'b': 2
 		'c': 3
@@ -19,7 +17,12 @@ fn main_func() {
 	popped := (d['b'] or { 0 })
 	println(popped)
 	println(d)
-	// d.update() - manually merge dicts
+	for py2v_k1, py2v_v2 in {
+		'x': 10
+		'y': 20
+	} {
+		d[py2v_k1] = py2v_v2
+	}
 	println(d)
 }
 

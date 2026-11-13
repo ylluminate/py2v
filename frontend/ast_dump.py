@@ -51,6 +51,12 @@ class AnalysisContext:
 # Analysis passes
 # ---------------------------------------------------------------------------
 
+
+def _plain_dict(node: ast.AST) -> bool:
+    """A dict display without `**` unpacking, whose map type the backend infers."""
+    return isinstance(node, ast.Dict) and None not in node.keys
+
+
 class ScopeTracker(ast.NodeVisitor):
     """Track variable assignments per scope to detect mutability and redefinitions."""
 
@@ -101,6 +107,30 @@ class ScopeTracker(ast.NodeVisitor):
             self.mutable.add(node.func.value.id)
             self._record_assign(node.func.value.id, node)
         self.generic_visit(node)
+
+    def visit_Expr(self, node: ast.Expr):
+        """The statement `d.update(e)` merges into d when d is bound only by a dict
+        display in this scope and e is a dict display or a name bound the same way;
+        the backend emits that merge as stores into d, so d must be mutable."""
+        call = node.value
+        if (isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == 'update'
+                and isinstance(call.func.value, ast.Name)
+                and len(call.args) == 1 and not call.keywords
+                and self._bound_to_dict(call.func.value.id)
+                and (_plain_dict(call.args[0])
+                     or (isinstance(call.args[0], ast.Name)
+                         and self._bound_to_dict(call.args[0].id)))):
+            self.mutable.add(call.func.value.id)
+        self.generic_visit(node)
+
+    def _bound_to_dict(self, name: str) -> bool:
+        """Report whether every binding of name in this scope is a dict display."""
+        bindings = self._current().get(name, [])
+        return len(bindings) > 0 and all(
+            isinstance(b, (ast.Assign, ast.AnnAssign)) and _plain_dict(b.value)
+            for b in bindings)
 
     def visit_Delete(self, node: ast.Delete):
         """Process del statement - don't mark as mutable since @[translated] relaxes this."""

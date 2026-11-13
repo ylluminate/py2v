@@ -3823,6 +3823,9 @@ pub fn (mut t VTranspiler) visit_expr_stmt(node ExprStmt) string {
 			return out.join('\n')
 		}
 	}
+	if merge := t.dict_update_merge(node.value) {
+		return merge
+	}
 	result := t.visit_expr(node.value)
 	if result.len == 0 {
 		return ''
@@ -3831,6 +3834,32 @@ pub fn (mut t VTranspiler) visit_expr_stmt(node ExprStmt) string {
 		return '_ = ${result}'
 	}
 	return result
+}
+
+// dict_update_merge lowers the statement `d.update(e)` to stores into d when d
+// is a `mut` local and d and e are maps of the same V type. A key e shares with
+// d keeps its place and takes e's value; new keys go at the end, as in Python.
+fn (mut t VTranspiler) dict_update_merge(expr Expr) ?string {
+	if expr !is Call {
+		return none
+	}
+	call := expr as Call
+	if call.func !is Attribute || call.args.len != 1 || call.keywords.len != 0 {
+		return none
+	}
+	attr := call.func as Attribute
+	if attr.attr != 'update' || attr.value !is Name || !(attr.value as Name).is_mutable {
+		return none
+	}
+	if !t.is_map_expr(attr.value)
+		|| t.infer_expr_type(attr.value) != t.infer_expr_type(call.args[0]) {
+		return none
+	}
+	obj := t.visit_expr(attr.value)
+	src := t.visit_expr(call.args[0])
+	k := t.new_tmp('k')
+	v := t.new_tmp('v')
+	return 'for ${k}, ${v} in ${src} {\n\t${obj}[${k}] = ${v}\n}'
 }
 
 // visit_constant emits V code for a Constant expression.
