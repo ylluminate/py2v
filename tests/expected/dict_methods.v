@@ -3,7 +3,7 @@ module main
 type Any = bool | int | i64 | f64 | string | []u8
 
 fn main_func() {
-	d := {
+	mut d := {
 		'a': 1
 		'b': 2
 		'c': 3
@@ -16,7 +16,13 @@ fn main_func() {
 	println(val)
 	val = d['z'] or { 99 }
 	println(val)
-	popped := (d['b'] or { 0 })
+	popped := if 'b' in d {
+		py2v_popped1 := d['b'] or { panic('KeyError') }
+		d.delete('b')
+		py2v_popped1
+	} else {
+		panic('KeyError')
+	}
 	println(popped)
 	println(d)
 	// d.update() - manually merge dicts

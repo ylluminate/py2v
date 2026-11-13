@@ -25,12 +25,12 @@ interface Sized {
 	__len__() int
 }
 
-fn first(stack Stack[T]) T {
+fn first(mut stack Stack[T]) T {
 	return stack.pop()
 }
 
 fn main() {
-	s := Stack{}
+	mut s := Stack{}
 	s.push(1)
 	s.push(2)
 	println(s.pop())

@@ -93,7 +93,7 @@ class ScopeTracker(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call):
         """Detect mutating method calls like x.append(), x.insert(), etc."""
         _MUTATING_METHODS = {
-            'append', 'insert', 'remove', 'extend',
+            'append', 'insert', 'remove', 'extend', 'pop',
         }
         if (isinstance(node.func, ast.Attribute)
                 and node.func.attr in _MUTATING_METHODS

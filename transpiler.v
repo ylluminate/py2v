@@ -3827,10 +3827,20 @@ pub fn (mut t VTranspiler) visit_expr_stmt(node ExprStmt) string {
 	if result.len == 0 {
 		return ''
 	}
-	if expr_is_conversion(result) {
+	if expr_is_conversion(result) || (result.starts_with('if ') && is_method_call(node.value, 'pop')) {
 		return '_ = ${result}'
 	}
 	return result
+}
+
+// is_method_call reports whether `expr` is a call of a method named `name`.
+fn is_method_call(expr Expr, name string) bool {
+	if expr is Call {
+		if expr.func is Attribute {
+			return expr.func.attr == name
+		}
+	}
+	return false
 }
 
 // visit_constant emits V code for a Constant expression.
@@ -5064,7 +5074,25 @@ pub fn (mut t VTranspiler) visit_call(node Call) string {
 			}
 			'pop' {
 				// For lists, V has .pop()
-				// For dicts with a key argument, need to get value before deleting
+				// A local map or list with a side-effect-free argument removes the
+				// element and returns it, as Python does; a missing key without a
+				// default and an index out of range panic like the KeyError and
+				// IndexError Python raises.
+				if vargs.len > 0 && vargs.len <= 2 && attr_node.value is Name
+					&& node.args[0] in [Name, Constant] {
+					// A fresh name per pop: V types an if-expression by the first
+					// binding it saw under a name, so a reused name breaks the C build.
+					tmp := t.new_tmp('popped')
+					if t.is_map_expr(attr_node.value) {
+						k := vargs[0]
+						dflt := if vargs.len == 2 { vargs[1] } else { "panic('KeyError')" }
+						return "if ${k} in ${obj} { ${tmp} := ${obj}[${k}] or { panic('KeyError') }; ${obj}.delete(${k}); ${tmp} } else { ${dflt} }"
+					}
+					if vargs.len == 1 && t.infer_expr_type(attr_node.value).starts_with('[]') {
+						i := vargs[0]
+						return 'if ${i} >= 0 { ${tmp} := ${obj}[${i}]; ${obj}.delete(${i}); ${tmp} } else { ${tmp} := ${obj}[${obj}.len + ${i}]; ${obj}.delete(${obj}.len + ${i}); ${tmp} }'
+					}
+				}
 				if vargs.len > 0 {
 					// Dict pop - get value then delete
 					// Note: V's delete doesn't return the value, and we can't use none
