@@ -2911,8 +2911,8 @@ pub fn (mut t VTranspiler) visit_raise(node Raise) string {
 // Rather than emit a handler that references an exception variable nothing ever
 // bound — which both fails to compile and reads as if it worked — the body is
 // emitted and the handlers are reported. `finally` is the exception: it maps
-// cleanly onto `defer`, so it keeps its code. `else` is dropped because it is
-// unreachable once no exception can be observed.
+// cleanly onto `defer`, so it keeps its code. `else` follows the body, since a
+// body that returns at all raised nothing.
 pub fn (mut t VTranspiler) visit_try(node Try) string {
 	mut buf := []string{}
 
@@ -2922,20 +2922,41 @@ pub fn (mut t VTranspiler) visit_try(node Try) string {
 		buf << t.visit_stmt(stmt)
 	}
 
-	if node.orelse.len > 0 {
+	// The body either finishes or panics, so when it can fall through the else
+	// body runs right after it, as Python runs it when the body raised nothing.
+	// A body that always leaves by return, break, continue or raise never
+	// reaches else in Python either; that form keeps its comment. An else that
+	// ends in a jump would make V reject the statements after the try, which
+	// Python reaches through a handler, as unreachable, so it is kept too.
+	run_else := node.orelse.len > 0 && !stmts_end_in_jump(node.body)
+		&& !stmts_end_in_jump(node.orelse)
+	if node.orelse.len > 0 && !run_else {
 		buf << '// else: runs only when the try body raises, which no V construct here does'
 		t.note_exception_handler('else clause', 1)
 	}
 
-	if node.handlers.len == 0 {
-		return buf.join('\n')
+	if node.handlers.len > 0 {
+		buf << '// except handlers are not translated: see the TODO(py2v) note above'
+		for handler in node.handlers {
+			buf << t.describe_except_handler(handler)
+		}
 	}
-
-	buf << '// except handlers are not translated: see the TODO(py2v) note above'
-	for handler in node.handlers {
-		buf << t.describe_except_handler(handler)
+	if run_else {
+		buf << '// else: the try body finished without raising'
+		for stmt in node.orelse {
+			buf << t.visit_stmt(stmt)
+		}
 	}
 	return buf.join('\n')
+}
+
+// stmts_end_in_jump reports whether a block's last statement always leaves it.
+fn stmts_end_in_jump(stmts []Stmt) bool {
+	if stmts.len == 0 {
+		return false
+	}
+	last := stmts.last()
+	return last is Return || last is Break || last is Continue || last is Raise
 }
 
 // describe_except_handler renders one handler as a comment and records that it

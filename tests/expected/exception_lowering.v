@@ -3,8 +3,7 @@ module main
 // TODO(py2v): no V mapping for KeyError.init
 // Each site below is stubbed with a zero value.
 
-// TODO(py2v): 5 except handler(s) need a V Result equivalent:
-//   else clause (1 stmt)
+// TODO(py2v): 4 except handler(s) need a V Result equivalent:
 //   except (1 stmt)
 //   except KeyError | TypeError (1 stmt)
 //   except OSError (1 stmt)
@@ -62,9 +61,10 @@ fn bare_handler() int {
 fn else_is_dropped() int {
 	mut value := 0
 	value = 1
-	// else: runs only when the try body raises, which no V construct here does
 	// except handlers are not translated: see the TODO(py2v) note above
 	//   except OSError: 1 statement(s) need an `or { ... }` equivalent
+	// else: the try body finished without raising
+	value = 3
 	return value
 }
 
