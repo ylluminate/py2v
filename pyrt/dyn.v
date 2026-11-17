@@ -72,6 +72,9 @@ pub fn length(v Value) int {
 
 // invoke is `v.name(args)`, for a method of a builtin type.
 pub fn invoke(v Value, name string, args ...Value) Value {
+	if v is Sequence {
+		return sequence_invoke(v, name, args) or { panic(err) }
+	}
 	return call_method(v, name, args) or { panic(err) }
 }
 
