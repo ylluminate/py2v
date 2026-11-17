@@ -289,7 +289,8 @@ call_results_root := os.join_path(os.temp_dir(), 'py2v_call_results_${os.getpid(
 os.mkdir_all(call_results_root) or { panic(err) }
 call_results_cases := ['dict_get_missing', 'dict_get_eager', 'dict_get_chain', 'dict_get_receiver',
 	'dict_get_mutating', 'dict_get_compare', 'with_return', 'rebound_optional_params',
-	'argparse_join_value', 'join_string_iterable', 'subparser_parameter']
+	'argparse_join_value', 'join_string_iterable', 'subparser_parameter', 'modulo_signed',
+	'modulo_float', 'modulo_generic', 'modulo_target_once', 'modulo_dynamic_target']
 mut execution_args := [][]string{}
 for name in call_results_cases {
 	execution_args << [py2v, python, os.join_path(cases_dir, name + '.py'),
