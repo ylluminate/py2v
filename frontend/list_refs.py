@@ -402,7 +402,7 @@ class Plan:
                         self.bad_calls.append(node)
                 elif isinstance(node.func, ast.Name) and node.func.id in (
                         'print', 'len', 'sum', 'min', 'max', 'sorted', 'reversed', 'enumerate', 'zip',
-                        'list', 'tuple', 'set', 'all', 'any', 'bool', 'str', 'repr', 'int', 'float', 'isinstance',
+                        'list', 'tuple', 'set', 'frozenset', 'all', 'any', 'bool', 'str', 'repr', 'int', 'float', 'isinstance',
                         'map', 'filter'):
                     if node.func.id in ('list', 'sorted') and node.args:
                         self.union(self.child(self.key(node)), self.child(self.key(node.args[0])))

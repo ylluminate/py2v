@@ -6445,11 +6445,12 @@ def process_file(file_path: str, project: Optional[ProjectFacts] = None) -> str:
     if project is None:
         _annotate_parameters_from_calls(tree, table, facts)
     _annotate_returns(tree, facts)
-    _lower_frozensets(tree, table)
     try:
         references = list_refs.plan(tree, table, facts)
     except list_refs.UnsupportedListIdentity as error:
         return json.dumps({"node_type": "Module", "body": [], "list_identity_error": str(error)})
+    # After the list plan, which reads the source's own frozenset calls rather than their lowering.
+    _lower_frozensets(tree, table)
     _lower_dynamic_values(tree, table, facts, any_lists)
     _box_mixed_displays(tree, table, facts)
     _parameterize_bare_containers(tree, table, facts)
