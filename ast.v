@@ -171,6 +171,15 @@ pub mut:
 	condition_walrus_names []string
 	// module_consts names the module-level values that functions read.
 	module_consts []string
+	type_imports  []TypeOnlyImport
+}
+
+// TypeOnlyImport preserves an annotation binding without executing its Python import.
+pub struct TypeOnlyImport {
+pub:
+	name   string
+	target string
+	status string
 }
 
 // Expressions
@@ -218,8 +227,8 @@ pub mut:
 	// math_member is set on a read of a name bound by `from math import ...`:
 	// the member's name in Python's math module.
 	math_member string
-	// api is the Python name of the runtime library class this name stands for in an
-	// annotation (`datetime.datetime`), or empty.
+	// api identifies the resolved class in an annotation: a runtime API path or a
+	// __project_type__ path to a class supplied by a type-only project import.
 	api string
 }
 

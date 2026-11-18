@@ -122,6 +122,15 @@ fn map_field(m map[string]json2.Any, key string) map[string]json2.Any {
 
 // Parse a Module node
 fn parse_module(m map[string]json2.Any) !Module {
+	mut type_imports := []TypeOnlyImport{}
+	for item in (m['type_imports'] or { json2.Any([]json2.Any{}) }).as_array() {
+		entry := item.as_map()
+		type_imports << TypeOnlyImport{
+			name:   (entry['name'] or { json2.Any('') }).str()
+			target: (entry['target'] or { json2.Any('') }).str()
+			status: (entry['status'] or { json2.Any('') }).str()
+		}
+	}
 	mut body := []Stmt{}
 	if raw_body := m['body'] {
 		for item in raw_body.as_array() {
@@ -138,6 +147,7 @@ fn parse_module(m map[string]json2.Any) !Module {
 		}
 	}
 	return Module{
+		type_imports:           type_imports
 		body:                   body
 		loc:                    parse_location(m)
 		docstring_comment:      docstring
